@@ -37,8 +37,8 @@ export async function generateQuestionSequence(rounds: SamplerRound[]): Promise<
     for (const source of round.sources) {
       for (const allocation of source.allocations) {
         const matchStage: Record<string, unknown> = {
-          bankId: source.bankId,
-          difficulty: allocation.difficulty,
+          bankId: new Types.ObjectId(source.bankId.toString()),
+          difficulty: Number(allocation.difficulty),
           isDeleted: false,
           _id: { $nin: Array.from(usedQuestionIds).map((id) => new Types.ObjectId(id)) },
         };
