@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ContestMode, ContestStatus, SelectionMode } from '../types/contest.types';
+import { ContestMode, ContestStatus } from '../types/contest.types';
 import { Difficulty, QuestionType } from '../types/question.types';
 import { ScoreOpType } from '../types/session.types';
 import { UserRole } from '../types/user.types';
@@ -128,20 +128,26 @@ export const createTagSchema = z.object({
   color: z.string().trim().max(16).optional(),
 });
 
+const difficultyAllocationSchema = z.object({
+  difficulty: z.nativeEnum(Difficulty),
+  count: z.number().int().positive(),
+});
+
+const roundSourceSchema = z.object({
+  bankId: idString,
+  allocations: z.array(difficultyAllocationSchema).min(1),
+});
+
+const difficultyTimingSchema = z.object({
+  difficulty: z.nativeEnum(Difficulty),
+  timeSeconds: z.number().int().min(1),
+});
+
 const roundSchema = z.object({
   roundNumber: z.number().int().positive(),
   name: z.string().trim().min(1).max(128),
-  questionCount: z.number().int().positive(),
-  timePerQuestion: z.number().int().min(1),
-  bankId: idString,
-  selectionMode: z.nativeEnum(SelectionMode),
-  difficultyConstraint: z
-    .object({
-      min: z.nativeEnum(Difficulty),
-      max: z.nativeEnum(Difficulty),
-      distribution: z.array(difficultyDistributionSchema).optional(),
-    })
-    .optional(),
+  questionsPerBatch: z.number().int().positive(),
+  sources: z.array(roundSourceSchema).min(1),
   tagConstraints: z
     .object({
       required: z.array(z.string().trim().min(1)).optional(),
@@ -149,7 +155,7 @@ const roundSchema = z.object({
       preferred: z.array(z.string().trim().min(1)).optional(),
     })
     .optional(),
-  questionIds: z.array(idString).optional(),
+  timings: z.array(difficultyTimingSchema).min(1),
   scoring: scoreSchema,
 });
 

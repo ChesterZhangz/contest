@@ -3,7 +3,7 @@ import { ContestModel } from '../models/Contest.model';
 import { ContestSessionModel } from '../models/ContestSession.model';
 import { QuestionModel } from '../models/Question.model';
 import { UserModel } from '../models/User.model';
-import { ContestMode, ContestStatus, SelectionMode } from '../types/contest.types';
+import { ContestMode, ContestStatus } from '../types/contest.types';
 import { UserRole } from '../types/user.types';
 import { ApiError } from '../utils/api-error';
 import { toObjectId } from '../utils/object-id';
@@ -73,8 +73,10 @@ function normalizeContestInput(payload: Record<string, unknown>, options?: { par
   if (!partial || 'rounds' in payload) {
     normalized.rounds = ((payload.rounds as Array<Record<string, unknown>> | undefined) ?? []).map((round) => ({
       ...round,
-      bankId: toObjectId(String(round.bankId), 'round.bankId'),
-      questionIds: ((round.questionIds as string[] | undefined) ?? []).map((id) => toObjectId(id, 'round.questionId')),
+      sources: ((round.sources as Array<Record<string, unknown>> | undefined) ?? []).map((source) => ({
+        ...source,
+        bankId: toObjectId(String(source.bankId), 'round.source.bankId'),
+      })),
     }));
   }
 
@@ -116,12 +118,9 @@ function canAccessContest(contest: { hostId: unknown; judgeIds?: unknown[]; part
 function mapRoundsForSampler(rounds: Array<Record<string, unknown>>) {
   return rounds.map((round, idx) => ({
     roundNumber: Number(round.roundNumber) > 0 ? Number(round.roundNumber) : idx + 1,
-    questionCount: Number(round.questionCount),
-    bankId: round.bankId as Types.ObjectId,
-    selectionMode: round.selectionMode as SelectionMode,
-    difficultyConstraint: round.difficultyConstraint as { min?: number; max?: number; distribution?: Array<{ difficulty: number; count: number }> } | undefined,
+    questionsPerBatch: Number(round.questionsPerBatch) || 1,
+    sources: (round.sources as Array<{ bankId: Types.ObjectId; allocations: Array<{ difficulty: number; count: number }> }>) ?? [],
     tagConstraints: round.tagConstraints as { required?: string[]; forbidden?: string[]; preferred?: string[] } | undefined,
-    questionIds: (round.questionIds as Types.ObjectId[] | undefined) ?? [],
   }));
 }
 

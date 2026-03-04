@@ -26,27 +26,32 @@ export interface TeamConfig {
   initialScore: number;
 }
 
+export interface DifficultyAllocation {
+  difficulty: Difficulty;
+  count: number;
+}
+
+export interface RoundSource {
+  bankId: string;
+  allocations: DifficultyAllocation[];
+}
+
+export interface DifficultyTiming {
+  difficulty: Difficulty;
+  timeSeconds: number;
+}
+
 export interface RoundConfig {
   roundNumber: number;
   name: string;
-  questionCount: number;
-  timePerQuestion: number;
-  bankId: string;
-  selectionMode: SelectionMode;
-  difficultyConstraint?: {
-    min: Difficulty;
-    max: Difficulty;
-    distribution?: Array<{
-      difficulty: Difficulty;
-      count: number;
-    }>;
-  };
+  questionsPerBatch: number;
+  sources: RoundSource[];
   tagConstraints?: {
     required?: string[];
     forbidden?: string[];
     preferred?: string[];
   };
-  questionIds?: string[];
+  timings: DifficultyTiming[];
   scoring: {
     correctScore: number;
     wrongScore: number;

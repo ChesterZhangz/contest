@@ -1,5 +1,5 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
-import { ContestMode, ContestStatus, SelectionMode } from '../types/contest.types';
+import { ContestMode, ContestStatus } from '../types/contest.types';
 import { Difficulty } from '../types/question.types';
 
 const teamSchema = new Schema(
@@ -13,14 +13,28 @@ const teamSchema = new Schema(
   { _id: false },
 );
 
-const difficultyDistributionSchema = new Schema(
+const difficultyValues = Object.values(Difficulty).filter((v) => typeof v === 'number');
+
+const difficultyAllocationSchema = new Schema(
   {
-    difficulty: {
-      type: Number,
-      enum: Object.values(Difficulty).filter((value) => typeof value === 'number'),
-      required: true,
-    },
+    difficulty: { type: Number, enum: difficultyValues, required: true },
     count: { type: Number, required: true, min: 1 },
+  },
+  { _id: false },
+);
+
+const roundSourceSchema = new Schema(
+  {
+    bankId: { type: Schema.Types.ObjectId, ref: 'QuestionBank', required: true },
+    allocations: { type: [difficultyAllocationSchema], required: true },
+  },
+  { _id: false },
+);
+
+const difficultyTimingSchema = new Schema(
+  {
+    difficulty: { type: Number, enum: difficultyValues, required: true },
+    timeSeconds: { type: Number, required: true, min: 1 },
   },
   { _id: false },
 );
@@ -29,37 +43,14 @@ const roundSchema = new Schema(
   {
     roundNumber: { type: Number, required: true, min: 1 },
     name: { type: String, required: true, trim: true, maxlength: 128 },
-    questionCount: { type: Number, required: true, min: 1 },
-    timePerQuestion: { type: Number, required: true, min: 0 },
-    bankId: { type: Schema.Types.ObjectId, ref: 'QuestionBank', required: true },
-    selectionMode: {
-      type: String,
-      enum: Object.values(SelectionMode),
-      required: true,
-    },
-    difficultyConstraint: {
-      min: {
-        type: Number,
-        enum: Object.values(Difficulty).filter((value) => typeof value === 'number'),
-      },
-      max: {
-        type: Number,
-        enum: Object.values(Difficulty).filter((value) => typeof value === 'number'),
-      },
-      distribution: {
-        type: [difficultyDistributionSchema],
-        default: undefined,
-      },
-    },
+    questionsPerBatch: { type: Number, required: true, min: 1 },
+    sources: { type: [roundSourceSchema], required: true },
     tagConstraints: {
       required: { type: [String], default: undefined },
       forbidden: { type: [String], default: undefined },
       preferred: { type: [String], default: undefined },
     },
-    questionIds: {
-      type: [Schema.Types.ObjectId],
-      default: undefined,
-    },
+    timings: { type: [difficultyTimingSchema], required: true },
     scoring: {
       correctScore: { type: Number, required: true },
       wrongScore: { type: Number, required: true },
