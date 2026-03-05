@@ -16,14 +16,16 @@ import { UserRole } from '../types/user.types';
 export const questionRouter = Router();
 
 questionRouter.use(requireAuth);
-questionRouter.use(requireRole(UserRole.HOST, UserRole.JUDGE, UserRole.SUPER_ADMIN));
 
+// Write routes: only host/judge/admin (specific paths before wildcard /:id)
+questionRouter.post('/', requireRole(UserRole.HOST, UserRole.JUDGE, UserRole.SUPER_ADMIN), validateBody(createQuestionSchema), asyncHandler(controller.createQuestion));
+questionRouter.post('/batch', requireRole(UserRole.HOST, UserRole.JUDGE, UserRole.SUPER_ADMIN), validateBody(batchQuestionsSchema), asyncHandler(controller.batchCreateQuestions));
+questionRouter.post('/preview-import', requireRole(UserRole.HOST, UserRole.JUDGE, UserRole.SUPER_ADMIN), validateBody(importQuestionsSchema), asyncHandler(controller.previewImport));
+questionRouter.post('/import', requireRole(UserRole.HOST, UserRole.JUDGE, UserRole.SUPER_ADMIN), validateBody(importQuestionsSchema), asyncHandler(controller.importQuestions));
+questionRouter.get('/export/:bankId', requireRole(UserRole.HOST, UserRole.JUDGE, UserRole.SUPER_ADMIN), asyncHandler(controller.exportQuestions));
+
+// Read routes: any authenticated user can query/view questions (service layer checks public bank access)
 questionRouter.get('/', validateQuery(questionQuerySchema), asyncHandler(controller.queryQuestions));
-questionRouter.post('/', validateBody(createQuestionSchema), asyncHandler(controller.createQuestion));
-questionRouter.post('/batch', validateBody(batchQuestionsSchema), asyncHandler(controller.batchCreateQuestions));
-questionRouter.post('/preview-import', validateBody(importQuestionsSchema), asyncHandler(controller.previewImport));
-questionRouter.post('/import', validateBody(importQuestionsSchema), asyncHandler(controller.importQuestions));
-questionRouter.get('/export/:bankId', asyncHandler(controller.exportQuestions));
 questionRouter.get('/:id', asyncHandler(controller.getQuestionById));
-questionRouter.patch('/:id', validateBody(updateQuestionSchema), asyncHandler(controller.updateQuestion));
-questionRouter.delete('/:id', asyncHandler(controller.deleteQuestion));
+questionRouter.patch('/:id', requireRole(UserRole.HOST, UserRole.JUDGE, UserRole.SUPER_ADMIN), validateBody(updateQuestionSchema), asyncHandler(controller.updateQuestion));
+questionRouter.delete('/:id', requireRole(UserRole.HOST, UserRole.JUDGE, UserRole.SUPER_ADMIN), asyncHandler(controller.deleteQuestion));

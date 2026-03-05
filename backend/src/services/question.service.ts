@@ -81,7 +81,13 @@ export async function queryQuestions(userId: string, params: Record<string, unkn
     throw new ApiError(422, 'VALIDATION_ERROR', '缺少 bankId');
   }
 
-  const bank = await assertBankOwner(bankId, userId);
+  const bank = await QuestionBankModel.findOne({ _id: toObjectId(bankId, 'bankId'), isDeleted: false }).lean();
+  if (!bank) {
+    throw new ApiError(404, 'BANK_NOT_FOUND', '题库不存在');
+  }
+  if (String(bank.ownerId) !== userId && !bank.isPublic) {
+    throw new ApiError(403, 'FORBIDDEN', '无权限访问该题库');
+  }
 
   const query: Record<string, unknown> = {
     bankId: bank._id,
@@ -156,7 +162,20 @@ export async function createQuestion(userId: string, payload: CreateQuestionDto)
 }
 
 export async function getQuestionById(userId: string, questionId: string) {
-  const question = await assertQuestionOwner(questionId, userId);
+  const question = await QuestionModel.findOne({ _id: toObjectId(questionId, 'questionId'), isDeleted: false });
+  if (!question) {
+    throw new ApiError(404, 'QUESTION_NOT_FOUND', '题目不存在');
+  }
+
+  const bank = await QuestionBankModel.findOne({ _id: question.bankId, isDeleted: false }).lean();
+  if (!bank) {
+    throw new ApiError(404, 'BANK_NOT_FOUND', '题库不存在');
+  }
+
+  if (String(bank.ownerId) !== userId && !bank.isPublic) {
+    throw new ApiError(403, 'FORBIDDEN', '无权限访问该题目');
+  }
+
   return question.toJSON();
 }
 
