@@ -175,8 +175,10 @@ export function useSocket({
       }
     })
 
-    socket.on('session:question_detail', (payload: { question: Parameters<typeof setCurrentQuestion>[0] }) => {
-      if (payload.question) {
+    socket.on('session:question_detail', (payload: { question: Parameters<typeof setCurrentQuestion>[0]; questions?: Parameters<typeof setCurrentBatch>[0] }) => {
+      if (Array.isArray(payload.questions) && payload.questions.length > 0) {
+        setCurrentBatch(payload.questions)
+      } else if (payload.question) {
         const cur = useSessionStore.getState().currentBatch
         if (cur.length <= 1) setCurrentBatch([payload.question])
       }

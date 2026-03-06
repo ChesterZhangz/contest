@@ -206,13 +206,23 @@ export async function getSession(sessionId: string, access: AccessContext) {
 
   const safeQuestionIndex = Number.isInteger(session.currentQuestionIndex) ? session.currentQuestionIndex : -1;
   const currentSequence = safeQuestionIndex >= 0 ? session.questionSequence[safeQuestionIndex] : null;
-  const question = currentSequence
-    ? await QuestionModel.findById(currentSequence.questionId)
+  const roundMeta = resolveRoundMeta(contest, currentSequence?.roundNumber, safeQuestionIndex);
+
+  // v2: batch size and per-difficulty timings
+  const round = roundMeta.round as Record<string, unknown> | undefined;
+  const batchSize = toPositiveInt(round?.questionsPerBatch as number) ?? 1;
+  const roundTimings = round?.timings as Array<{ difficulty: number; timeSeconds: number }> | undefined;
+
+  // Load all questions in the current batch
+  const batchSequences = safeQuestionIndex >= 0
+    ? Array.from({ length: batchSize }, (_, i) => session.questionSequence[safeQuestionIndex + i]).filter(Boolean)
+    : [];
+  const batchDocs = batchSequences.length > 0
+    ? await QuestionModel.find({ _id: { $in: batchSequences.map((s) => s.questionId) } })
         .select('content answer solution type difficulty tags choices source')
         .lean()
-    : null;
-  const roundMeta = resolveRoundMeta(contest, currentSequence?.roundNumber, safeQuestionIndex);
-  const fallbackTotalSeconds = normalizeTimerSeconds(roundMeta.round?.timePerQuestion);
+    : [];
+  const questionMap = new Map(batchDocs.map((q) => [String(q._id), q]));
 
   const isEnrolledContestant =
     (contest.participants ?? []).some((id) => String(id) === access.userId) ||
@@ -220,23 +230,39 @@ export async function getSession(sessionId: string, access: AccessContext) {
   const isHostViewer = isHostForContest(contest, access);
   const isJudgeViewer = isJudgeForContest(contest, access);
 
-  const canSeeQuestion = isHostViewer || isJudgeViewer || isEnrolledContestant || access.role === UserRole.SUPER_ADMIN;
-  const canSeeAnswer =
-    isHostViewer || isJudgeViewer || access.role === UserRole.SUPER_ADMIN || Boolean(currentSequence?.isRevealed);
+  // Contestants can only see question content after the timer has started (not in waiting/question_active)
+  const isTimerStarted =
+    session.state !== SessionState.WAITING && session.state !== SessionState.QUESTION_ACTIVE;
+  const canSeeQuestion =
+    isHostViewer || isJudgeViewer || access.role === UserRole.SUPER_ADMIN ||
+    (isEnrolledContestant && isTimerStarted);
 
-  const questionForViewer = question
-    ? {
-        id: String(question._id),
-        content: canSeeQuestion ? question.content : undefined,
-        answer: canSeeAnswer ? question.answer : undefined,
-        solution: canSeeAnswer ? question.solution : undefined,
-        type: question.type,
-        difficulty: question.difficulty,
-        tags: question.tags,
-        choices: canSeeQuestion ? question.choices : undefined,
-        source: question.source,
-      }
-    : null;
+  const buildQuestionView = (seq: (typeof batchSequences)[0]) => {
+    const q = questionMap.get(String(seq.questionId));
+    if (!q) return null;
+    const canSeeAnswer =
+      isHostViewer || isJudgeViewer || access.role === UserRole.SUPER_ADMIN || Boolean(seq.isRevealed);
+    return {
+      id: String(q._id),
+      content: canSeeQuestion ? q.content : undefined,
+      answer: canSeeAnswer ? q.answer : undefined,
+      solution: canSeeAnswer ? q.solution : undefined,
+      type: q.type,
+      difficulty: q.difficulty,
+      tags: q.tags,
+      choices: canSeeQuestion ? q.choices : undefined,
+      source: q.source,
+    };
+  };
+
+  const currentBatch = batchSequences.map(buildQuestionView).filter(Boolean);
+  const questionForViewer = currentBatch[0] ?? null;
+
+  // v2: compute timer fallback from first question's difficulty timing
+  const firstDoc = batchSequences[0] ? questionMap.get(String(batchSequences[0].questionId)) : null;
+  const firstDifficulty = firstDoc ? Number(firstDoc.difficulty) : 1;
+  const diffTiming = roundTimings?.find((t) => t.difficulty === firstDifficulty);
+  const fallbackTotalSeconds = diffTiming?.timeSeconds ?? DEFAULT_TIME_PER_QUESTION_SECONDS;
 
   const timerState = ensureTimer(session);
   const timerRemaining = ensureTimerRemaining(timerState);
@@ -281,6 +307,7 @@ export async function getSession(sessionId: string, access: AccessContext) {
       revealedAt: item.revealedAt,
     })),
     currentQuestion: questionForViewer,
+    currentBatch,
     viewer: {
       isHostForContest: isHostViewer || access.role === UserRole.SUPER_ADMIN,
       isJudgeForContest: isJudgeViewer || access.role === UserRole.SUPER_ADMIN,
@@ -313,7 +340,21 @@ export async function nextQuestion(sessionId: string, access: AccessContext, ski
   const { session, contest } = await loadSessionWithContest(sessionId);
   requireHost(contest, access);
 
-  const targetIndex = skipTo !== undefined ? skipTo - 1 : session.currentQuestionIndex + 1;
+  // Determine current batch size so we advance by the right amount
+  const currentIdx = session.currentQuestionIndex;
+  const currentSeq = currentIdx >= 0 ? session.questionSequence[currentIdx] : null;
+  const currentRoundMeta = currentSeq
+    ? resolveRoundMeta(contest, currentSeq.roundNumber, currentIdx)
+    : null;
+  const currentBatchSize =
+    toPositiveInt((currentRoundMeta?.round as Record<string, unknown> | undefined)?.questionsPerBatch as number) ?? 1;
+
+  const targetIndex =
+    skipTo !== undefined
+      ? skipTo - 1
+      : currentIdx < 0
+      ? 0
+      : currentIdx + currentBatchSize;
 
   if (targetIndex < 0 || targetIndex >= session.questionSequence.length) {
     throw new ApiError(409, 'INVALID_SESSION_STATE', '题目序号超出范围');
@@ -325,7 +366,37 @@ export async function nextQuestion(sessionId: string, access: AccessContext, ski
   session.currentRoundIndex = roundMeta.roundIndex;
   session.state = SessionState.QUESTION_ACTIVE;
 
-  const totalSeconds = normalizeTimerSeconds(roundMeta.round?.timePerQuestion);
+  // v2: determine batch size for target round
+  const round = roundMeta.round as Record<string, unknown> | undefined;
+  const questionsPerBatch = toPositiveInt(round?.questionsPerBatch as number) ?? 1;
+  const roundTimings = round?.timings as Array<{ difficulty: number; timeSeconds: number }> | undefined;
+
+  // Collect all indices in this batch (same round, consecutive)
+  const batchIndices: number[] = [];
+  for (let i = 0; i < questionsPerBatch && targetIndex + i < session.questionSequence.length; i++) {
+    const seqItem = session.questionSequence[targetIndex + i];
+    if (!seqItem) break;
+    const seqRound = resolveRoundMeta(contest, seqItem.roundNumber, targetIndex + i);
+    if (seqRound.roundIndex !== roundMeta.roundIndex) break;
+    batchIndices.push(targetIndex + i);
+  }
+
+  const batchSequences = batchIndices.map((i) => session.questionSequence[i]);
+  const batchDocs = await QuestionModel.find({ _id: { $in: batchSequences.map((s) => s.questionId) } })
+    .select('content answer solution type difficulty tags choices source')
+    .lean();
+  const questionMap = new Map(batchDocs.map((q) => [String(q._id), q]));
+
+  // v2: use max timing across all batch questions' difficulties
+  const totalSeconds =
+    batchDocs.length > 0 && roundTimings?.length
+      ? Math.max(
+          ...batchDocs.map((q) => {
+            const t = roundTimings.find((ti) => ti.difficulty === Number(q.difficulty));
+            return t?.timeSeconds ?? DEFAULT_TIME_PER_QUESTION_SECONDS;
+          }),
+        )
+      : DEFAULT_TIME_PER_QUESTION_SECONDS;
 
   session.timer = {
     totalSeconds,
@@ -336,13 +407,26 @@ export async function nextQuestion(sessionId: string, access: AccessContext, ski
 
   await session.save();
 
-  const question = await QuestionModel.findById(sequence.questionId)
-    .select('content answer solution type difficulty tags choices source')
-    .lean();
-
-  if (!question) {
+  const firstDoc = batchSequences[0] ? questionMap.get(String(batchSequences[0].questionId)) : null;
+  if (!firstDoc) {
     throw new ApiError(404, 'QUESTION_NOT_FOUND', '题目不存在');
   }
+
+  const batchForDetail = batchSequences.map((seq) => {
+    const q = questionMap.get(String(seq.questionId));
+    if (!q) return null;
+    return {
+      id: String(q._id),
+      content: q.content,
+      answer: q.answer,
+      solution: q.solution,
+      type: q.type,
+      difficulty: q.difficulty,
+      tags: q.tags,
+      choices: q.choices,
+      source: q.source,
+    };
+  }).filter(Boolean);
 
   return {
     session: session.toJSON(),
@@ -354,22 +438,14 @@ export async function nextQuestion(sessionId: string, access: AccessContext, ski
       timePerQuestion: totalSeconds,
       orderInRound: Number(sequence.orderInRound),
       totalInRound: toPositiveInt(roundMeta.round?.questionCount) ?? 0,
-      questionId: String(question._id),
+      questionId: String(firstDoc._id),
+      batchSize: batchIndices.length,
     },
     questionDetail: {
       questionIndex: sequence.globalOrder,
-      question: {
-        id: String(question._id),
-        content: question.content,
-        answer: question.answer,
-        solution: question.solution,
-        type: question.type,
-        difficulty: question.difficulty,
-        tags: question.tags,
-        choices: question.choices,
-        source: question.source,
-      },
-      isLastQuestion: targetIndex === session.questionSequence.length - 1,
+      question: batchForDetail[0],
+      questions: batchForDetail,
+      isLastQuestion: batchIndices.length > 0 && batchIndices[batchIndices.length - 1] >= session.questionSequence.length - 1,
     },
   };
 }

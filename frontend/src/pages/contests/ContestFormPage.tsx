@@ -687,10 +687,18 @@ export default function ContestFormPage() {
     enabled: isEditing,
   })
 
-  const { data: banks = [] } = useQuery({
+  const { data: myBanks = [] } = useQuery({
     queryKey: ['banks'],
     queryFn: banksService.list,
   })
+
+  const { data: publicBanks = [] } = useQuery({
+    queryKey: ['banks', 'public'],
+    queryFn: banksService.listPublic,
+  })
+
+  // Merge own banks and public banks, deduplicate by id
+  const banks = [...myBanks, ...publicBanks.filter((pb) => !myBanks.some((mb) => mb.id === pb.id))]
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],

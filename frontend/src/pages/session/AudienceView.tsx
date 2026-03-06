@@ -167,7 +167,6 @@ export default function AudienceView() {
   const isFinished = session?.state === 'finished'
   const isWaiting = !session || session.state === 'waiting'
   const showParticipantQuestion =
-    session?.state === 'question_active' ||
     session?.state === 'timer_running' ||
     session?.state === 'timer_paused' ||
     session?.state === 'timer_expired' ||
