@@ -19,6 +19,7 @@ bankRouter.post(
   asyncHandler(controller.createBank),
 );
 bankRouter.get('/public', requireRole(UserRole.HOST, UserRole.JUDGE, UserRole.SUPER_ADMIN), asyncHandler(controller.getPublicBanks));
+bankRouter.get('/all', requireRole(UserRole.SUPER_ADMIN), asyncHandler(controller.getAllBanks));
 bankRouter.get('/:id', asyncHandler(controller.getBankById));
 bankRouter.patch('/:id', validateBody(updateBankSchema), asyncHandler(controller.updateBank));
 bankRouter.delete('/:id', asyncHandler(controller.deleteBank));

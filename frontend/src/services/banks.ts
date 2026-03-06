@@ -18,6 +18,11 @@ export const banksService = {
     return extractData(res)
   },
 
+  listAll: async (): Promise<QuestionBank[]> => {
+    const res = await api.get('/banks/all')
+    return extractData(res)
+  },
+
   get: async (id: string): Promise<QuestionBank> => {
     const res = await api.get(`/banks/${id}`)
     return extractData(res)

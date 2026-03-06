@@ -18,6 +18,7 @@ import {
 import { clsx } from 'clsx'
 import { contestsService } from '@/services/contests'
 import { banksService } from '@/services/banks'
+import { useAuthStore } from '@/store/auth'
 import { usersService } from '@/services/users'
 import { questionsService } from '@/services/questions'
 import { tagsService } from '@/services/tags'
@@ -660,6 +661,7 @@ export default function ContestFormPage() {
   const { contestId } = useParams<{ contestId: string }>()
   const isEditing = Boolean(contestId)
   const navigate = useNavigate()
+  const currentUser = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const toast = useToast()
   const { i18n } = useTranslation()
@@ -687,18 +689,30 @@ export default function ContestFormPage() {
     enabled: isEditing,
   })
 
+  const isSuperAdmin = currentUser?.role === 'super_admin'
+
   const { data: myBanks = [] } = useQuery({
     queryKey: ['banks'],
     queryFn: banksService.list,
+    enabled: !isSuperAdmin,
   })
 
   const { data: publicBanks = [] } = useQuery({
     queryKey: ['banks', 'public'],
     queryFn: banksService.listPublic,
+    enabled: !isSuperAdmin,
   })
 
-  // Merge own banks and public banks, deduplicate by id
-  const banks = [...myBanks, ...publicBanks.filter((pb) => !myBanks.some((mb) => mb.id === pb.id))]
+  const { data: allBanks = [] } = useQuery({
+    queryKey: ['banks', 'all'],
+    queryFn: banksService.listAll,
+    enabled: isSuperAdmin,
+  })
+
+  // super_admin sees all banks; others see own + public
+  const banks = isSuperAdmin
+    ? allBanks
+    : [...myBanks, ...publicBanks.filter((pb) => !myBanks.some((mb) => mb.id === pb.id))]
 
   const { data: allUsers = [] } = useQuery({
     queryKey: ['users'],

@@ -19,6 +19,11 @@ export async function getPublicBanks() {
   return banks.map(withId);
 }
 
+export async function getAllBanks() {
+  const banks = await QuestionBankModel.find({ isDeleted: false }).sort({ updatedAt: -1 }).lean();
+  return banks.map(withId);
+}
+
 export async function createBank(userId: string, data: { name: string; description?: string; isPublic?: boolean }) {
   const ownerId = toObjectId(userId, 'userId');
   const bank = await QuestionBankModel.create({

@@ -17,6 +17,11 @@ export async function getPublicBanks(_req: Request, res: Response): Promise<void
   sendSuccess(res, data);
 }
 
+export async function getAllBanks(_req: Request, res: Response): Promise<void> {
+  const data = await bankService.getAllBanks();
+  sendSuccess(res, data);
+}
+
 export async function createBank(req: Request, res: Response): Promise<void> {
   if (!req.user) {
     throw new ApiError(401, 'AUTH_REQUIRED', '请先登录');
