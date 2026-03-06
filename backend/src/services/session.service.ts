@@ -340,21 +340,31 @@ export async function nextQuestion(sessionId: string, access: AccessContext, ski
   const { session, contest } = await loadSessionWithContest(sessionId);
   requireHost(contest, access);
 
-  // Determine current batch size so we advance by the right amount
   const currentIdx = session.currentQuestionIndex;
-  const currentSeq = currentIdx >= 0 ? session.questionSequence[currentIdx] : null;
-  const currentRoundMeta = currentSeq
-    ? resolveRoundMeta(contest, currentSeq.roundNumber, currentIdx)
-    : null;
-  const currentBatchSize =
-    toPositiveInt((currentRoundMeta?.round as Record<string, unknown> | undefined)?.questionsPerBatch as number) ?? 1;
+
+  // Compute the ACTUAL size of the current batch (may be < questionsPerBatch if
+  // the round's total question count is not evenly divisible, or at a round boundary).
+  let actualCurrentBatchSize = 1;
+  if (currentIdx >= 0) {
+    const currentSeq = session.questionSequence[currentIdx];
+    const cRoundMeta = resolveRoundMeta(contest, currentSeq?.roundNumber, currentIdx);
+    const cRound = cRoundMeta.round as Record<string, unknown> | undefined;
+    const cQPB = toPositiveInt(cRound?.questionsPerBatch as number) ?? 1;
+    for (let i = 0; i < cQPB && currentIdx + i < session.questionSequence.length; i++) {
+      const seqItem = session.questionSequence[currentIdx + i];
+      if (!seqItem) break;
+      const seqRound = resolveRoundMeta(contest, seqItem.roundNumber, currentIdx + i);
+      if (seqRound.roundIndex !== cRoundMeta.roundIndex) break;
+      actualCurrentBatchSize = i + 1;
+    }
+  }
 
   const targetIndex =
     skipTo !== undefined
       ? skipTo - 1
       : currentIdx < 0
       ? 0
-      : currentIdx + currentBatchSize;
+      : currentIdx + actualCurrentBatchSize;
 
   if (targetIndex < 0 || targetIndex >= session.questionSequence.length) {
     throw new ApiError(409, 'INVALID_SESSION_STATE', '题目序号超出范围');

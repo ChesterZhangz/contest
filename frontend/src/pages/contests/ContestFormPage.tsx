@@ -842,7 +842,10 @@ export default function ContestFormPage() {
       }
     }
 
-    // Validate rounds
+    // Validate rounds (track cumulative usage across rounds to catch cross-round depletion)
+    // key: `${bankId}:${difficulty}`, value: total used so far
+    const usedAcrossRounds = new Map<string, number>()
+
     for (let i = 0; i < rounds.length; i++) {
       const r = rounds[i]
       const enabledSources = r.sources.filter(
@@ -857,23 +860,17 @@ export default function ContestFormPage() {
         return
       }
 
-      // Per-difficulty capacity check
+      // Per-difficulty capacity check (cumulative across rounds)
       for (const source of enabledSources) {
         const counts = bankDiffCounts[source.bankId]
         const bankName = banks.find((b) => b.id === source.bankId)?.name ?? source.bankId
         for (const alloc of source.allocations.filter((a) => a.enabled && a.count > 0)) {
-          const available = counts?.[alloc.difficulty]
-          if (available !== undefined && alloc.count > available) {
-            const diffLabel = DIFFICULTY_LABELS[alloc.difficulty]
-            toast.error(
-              lang === 'zh'
-                ? `第 ${i + 1} 环节：题库「${bankName}」${diffLabel.zh}难度仅有 ${available} 题，超出了所需的 ${alloc.count} 题`
-                : `Round ${i + 1}: bank "${bankName}" has only ${available} ${diffLabel.en} questions (need ${alloc.count})`
-            )
-            return
-          }
-          if (available === 0) {
-            const diffLabel = DIFFICULTY_LABELS[alloc.difficulty]
+          const key = `${source.bankId}:${alloc.difficulty}`
+          const totalAvailable = counts?.[alloc.difficulty] ?? 0
+          const alreadyUsed = usedAcrossRounds.get(key) ?? 0
+          const remaining = totalAvailable - alreadyUsed
+          const diffLabel = DIFFICULTY_LABELS[alloc.difficulty]
+          if (totalAvailable === 0) {
             toast.error(
               lang === 'zh'
                 ? `第 ${i + 1} 环节：题库「${bankName}」没有${diffLabel.zh}难度的题目`
@@ -881,6 +878,15 @@ export default function ContestFormPage() {
             )
             return
           }
+          if (alloc.count > remaining) {
+            toast.error(
+              lang === 'zh'
+                ? `第 ${i + 1} 环节：题库「${bankName}」${diffLabel.zh}难度已被前面环节使用 ${alreadyUsed} 题，仅剩 ${remaining} 题，不足所需的 ${alloc.count} 题`
+                : `Round ${i + 1}: bank "${bankName}" ${diffLabel.en} only has ${remaining} questions left (${alreadyUsed} used in earlier rounds, need ${alloc.count})`
+            )
+            return
+          }
+          usedAcrossRounds.set(key, alreadyUsed + alloc.count)
         }
       }
 
