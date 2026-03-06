@@ -534,7 +534,8 @@ export default function HostPanel() {
               icon={<SkipForward className="w-4 h-4" />}
               onClick={handleNextQuestion}
               loading={isNexting}
-              disabled={isFinished || totalQuestions === 0}
+              disabled={isFinished || totalQuestions === 0 || isTimerRunning}
+              title={isTimerRunning ? (lang === 'zh' ? '请先暂停计时再切题' : 'Pause timer before advancing') : undefined}
             >
               {isBatch
                 ? lang === 'zh' ? '下一批' : 'Next Batch'

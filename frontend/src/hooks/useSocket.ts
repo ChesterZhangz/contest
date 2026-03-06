@@ -244,7 +244,9 @@ export function useSocket({
 
     socket.on('timer:expired', () => {
       const cur = useSessionStore.getState().session
-      if (cur) setSession({ ...cur, state: 'timer_expired' })
+      // Only apply if still in timer_running — guards against stale events arriving
+      // after session:question_changed already advanced to question_active
+      if (cur && cur.state === 'timer_running') setSession({ ...cur, state: 'timer_expired' })
       onTimerExpired?.()
     })
 
